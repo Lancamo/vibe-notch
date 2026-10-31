@@ -55,12 +55,10 @@ class UpdateManager: NSObject, ObservableObject {
     // MARK: - Public API
 
     func checkForUpdates() {
-        state = .checking
-        if let updater = AppDelegate.shared?.updater {
-            updater.checkForUpdates()
-        } else {
-            state = .error(message: "Updater not initialized")
-        }
+        // Sparkle is intentionally not started in this local build, so calling
+        // into it here would operate on an unstarted updater. Keep the menu
+        // item inert instead.
+        state = .error(message: "Auto-update is disabled in this build")
     }
 
     func downloadAndInstall() {
