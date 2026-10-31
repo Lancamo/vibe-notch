@@ -69,13 +69,12 @@ class NotchWindowController: NSWindowController {
             .sink { [weak notchWindow, weak viewModel] status in
                 switch status {
                 case .opened:
-                    // Accept mouse events when opened so buttons work
+                    // Accept mouse events when opened so buttons work.
+                    // Never activate the app or make the panel key: it is a
+                    // non-activating panel, buttons respond to mouse events,
+                    // and stealing focus pulls keystrokes away from the app
+                    // the user is typing in.
                     notchWindow?.ignoresMouseEvents = false
-                    // Don't steal focus when opened by notification (task finished)
-                    if viewModel?.openReason != .notification {
-                        NSApp.activate(ignoringOtherApps: false)
-                        notchWindow?.makeKey()
-                    }
                 case .closed, .popping:
                     // Ignore mouse events when closed so clicks pass through
                     notchWindow?.ignoresMouseEvents = true

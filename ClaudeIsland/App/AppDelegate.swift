@@ -28,11 +28,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
         AppDelegate.shared = self
 
-        do {
-            try updater.start()
-        } catch {
-            print("Failed to start Sparkle updater: \(error)")
-        }
+        // Updater is intentionally not started in this local build: an official
+        // release would replace the patched app and reintroduce the bugs.
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -42,6 +39,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         Mixpanel.initialize(token: "49814c1436104ed108f3fc4735228496")
+        Mixpanel.mainInstance().optOutTracking()
 
         let distinctId = getOrCreateDistinctId()
         Mixpanel.mainInstance().identify(distinctId: distinctId)

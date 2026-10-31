@@ -144,12 +144,30 @@ actor SessionStore {
         if event.status == "ended" {
             sessions.removeValue(forKey: sessionId)
             cancelPendingSync(sessionId: sessionId)
+            await ConversationParser.shared.resetState(for: sessionId)
             return
         }
 
         let newPhase = event.determinePhase()
 
-        if session.phase.canTransition(to: newPhase) {
+        // PostToolUse of a run_in_background Bash, SubagentStop, PostCompact and
+        // similar events map to .processing and can arrive after Stop. Without
+        // this guard they drag an idle session back into .processing with no
+        // later event to correct it, so the notch animates forever.
+        if event.event == "Stop" || event.event == "StopFailure" {
+            session.turnEndedAt = Date()
+        } else if event.event == "UserPromptSubmit" || event.event == "PreToolUse" {
+            session.turnEndedAt = nil
+        }
+
+        let isLateProcessingEvent = session.turnEndedAt != nil
+            && newPhase == .processing
+            && event.event != "UserPromptSubmit"
+            && event.event != "PreToolUse"
+
+        if isLateProcessingEvent {
+            Self.logger.debug("Ignoring late \(event.event, privacy: .public) after turn end, keeping \(String(describing: session.phase), privacy: .public)")
+        } else if session.phase.canTransition(to: newPhase) {
             session.phase = newPhase
         } else {
             Self.logger.debug("Invalid transition: \(String(describing: session.phase), privacy: .public) -> \(String(describing: newPhase), privacy: .public), ignoring")
@@ -928,6 +946,7 @@ actor SessionStore {
     private func processSessionEnd(sessionId: String) async {
         sessions.removeValue(forKey: sessionId)
         cancelPendingSync(sessionId: sessionId)
+        await ConversationParser.shared.resetState(for: sessionId)
     }
 
     // MARK: - History Loading
@@ -1069,13 +1088,14 @@ actor SessionStore {
     }
 
     /// Recheck status of all active sessions
-    private func recheckAllSessions() {
+    private func recheckAllSessions() async {
         var removedSession = false
 
         for (sessionId, session) in Array(sessions) {
             if session.phase == .ended {
                 sessions.removeValue(forKey: sessionId)
                 cancelPendingSync(sessionId: sessionId)
+                await ConversationParser.shared.resetState(for: sessionId)
                 removedSession = true
                 continue
             }
@@ -1086,6 +1106,7 @@ actor SessionStore {
                     Self.logger.info("Process \(pid) no longer running, ending session \(sessionId.prefix(8))")
                     sessions.removeValue(forKey: sessionId)
                     cancelPendingSync(sessionId: sessionId)
+                    await ConversationParser.shared.resetState(for: sessionId)
                     removedSession = true
                     continue
                 }

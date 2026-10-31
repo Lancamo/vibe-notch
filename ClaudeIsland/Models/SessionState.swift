@@ -58,6 +58,10 @@ struct SessionState: Equatable, Identifiable, Sendable {
     var lastActivity: Date
     var createdAt: Date
 
+    /// Set when Stop/StopFailure ends the turn, cleared when new work begins.
+    /// Late hook events must not flip the session back to processing.
+    var turnEndedAt: Date? = nil
+
     // MARK: - Identifiable
 
     var id: String { sessionId }
