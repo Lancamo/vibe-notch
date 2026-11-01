@@ -45,6 +45,9 @@ class NotchViewModel: ObservableObject {
     @Published var openReason: NotchOpenReason = .unknown
     @Published var contentType: NotchContentType = .instances
     @Published var isHovering: Bool = false
+    /// Whether the pointer is inside the small notch strip. Updated on every
+    /// mouse move so the window can react even when `isHovering` stays true.
+    @Published var isPointerInNotch: Bool = false
 
     // MARK: - Dependencies
 
@@ -159,6 +162,10 @@ class NotchViewModel: ObservableObject {
     private func handleMouseMove(_ location: CGPoint) {
         let inNotch = geometry.isPointInNotch(location)
         let inOpened = status == .opened && geometry.isPointInOpenedPanel(location, size: openedSize)
+
+        if isPointerInNotch != inNotch {
+            isPointerInNotch = inNotch
+        }
 
         let newHovering = inNotch || inOpened
 

@@ -13,6 +13,8 @@ class NotchWindowController: NSWindowController {
     let viewModel: NotchViewModel
     private let screen: NSScreen
     private var cancellables = Set<AnyCancellable>()
+    /// Set once the pointer has deliberately reached the notch after an auto-open.
+    private var autoOpenInteractive = false
 
     init(screen: NSScreen, animateOnLaunch: Bool = true) {
         self.screen = screen
@@ -63,23 +65,22 @@ class NotchWindowController: NSWindowController {
 
         // Dynamically toggle mouse event handling based on notch state:
         // - Closed: ignoresMouseEvents = true (clicks pass through to menu bar/apps)
-        // - Opened: ignoresMouseEvents = false (buttons inside panel work)
+        // - Opened deliberately (click/hover): buttons work while the pointer is over the panel
+        // - Opened automatically (notification/permission): stays click-through until the
+        //   pointer is moved onto the notch, so a pop-up never takes over the mouse
         viewModel.$status
             .receive(on: DispatchQueue.main)
-            .sink { [weak notchWindow, weak viewModel] status in
-                switch status {
-                case .opened:
-                    // Accept mouse events when opened so buttons work.
-                    // Never activate the app or make the panel key: it is a
-                    // non-activating panel, buttons respond to mouse events,
-                    // and stealing focus pulls keystrokes away from the app
-                    // the user is typing in.
-                    notchWindow?.ignoresMouseEvents = false
-                case .closed, .popping:
-                    // Ignore mouse events when closed so clicks pass through
-                    notchWindow?.ignoresMouseEvents = true
-                }
-            }
+            .sink { [weak self] _ in self?.updateMouseInteractivity() }
+            .store(in: &cancellables)
+
+        viewModel.$isHovering
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateMouseInteractivity() }
+            .store(in: &cancellables)
+
+        viewModel.$isPointerInNotch
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateMouseInteractivity() }
             .store(in: &cancellables)
 
         // Start with ignoring mouse events (closed state)
@@ -89,6 +90,37 @@ class NotchWindowController: NSWindowController {
         if animateOnLaunch {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                 self?.viewModel.performBootAnimation()
+            }
+        }
+    }
+
+    private func updateMouseInteractivity() {
+        guard let window = self.window else { return }
+
+        let inNotch = viewModel.isPointerInNotch
+        let inPanel = viewModel.isHovering
+
+        switch viewModel.status {
+        case .closed, .popping:
+            autoOpenInteractive = false
+            window.ignoresMouseEvents = true
+
+        case .opened:
+            let deliberate = viewModel.openReason == .click || viewModel.openReason == .hover
+            if deliberate {
+                window.ignoresMouseEvents = !(inNotch || inPanel)
+            } else {
+                // Auto-opened (notification / permission prompt). Stay click-through
+                // so the pop-up cannot take the mouse from the app in use. The panel
+                // becomes interactive only after the pointer deliberately reaches
+                // the notch, and stays so while the pointer is on the panel.
+                if !autoOpenInteractive && inNotch {
+                    autoOpenInteractive = true
+                }
+                if autoOpenInteractive && !inNotch && !inPanel {
+                    autoOpenInteractive = false
+                }
+                window.ignoresMouseEvents = !autoOpenInteractive
             }
         }
     }
