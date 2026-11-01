@@ -90,6 +90,7 @@ def main():
     state = {
         "session_id": session_id,
         "host_session_id": os.environ.get("CLAUDE_CODE_HOST_SESSION_ID"),
+        "permission_mode": data.get("permission_mode"),
         "cwd": cwd,
         "event": event,
         "pid": claude_pid,

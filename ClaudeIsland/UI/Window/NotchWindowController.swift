@@ -15,6 +15,8 @@ class NotchWindowController: NSWindowController {
     private var cancellables = Set<AnyCancellable>()
     /// Set once the pointer has deliberately reached the notch after an auto-open.
     private var autoOpenInteractive = false
+    private var wasHovering = false
+    private var lastStatus: NotchStatus = .closed
 
     init(screen: NSScreen, animateOnLaunch: Bool = true) {
         self.screen = screen
@@ -97,8 +99,19 @@ class NotchWindowController: NSWindowController {
     private func updateMouseInteractivity() {
         guard let window = self.window else { return }
 
+        let hovering = viewModel.isHovering
         let inNotch = viewModel.isPointerInNotch
-        let inPanel = viewModel.isHovering
+
+        if viewModel.status == .opened && lastStatus != .opened {
+            // If the panel appeared under the pointer, that pointer position is
+            // not intent. Wait for it to leave and come back, or reach the notch.
+            let point = NSEvent.mouseLocation
+            let appearedUnderPointer = viewModel.geometry.isPointInNotch(point)
+                || viewModel.geometry.isPointInOpenedPanel(point, size: viewModel.openedSize)
+            wasHovering = appearedUnderPointer || hovering
+            autoOpenInteractive = false
+        }
+        lastStatus = viewModel.status
 
         switch viewModel.status {
         case .closed, .popping:
@@ -108,21 +121,23 @@ class NotchWindowController: NSWindowController {
         case .opened:
             let deliberate = viewModel.openReason == .click || viewModel.openReason == .hover
             if deliberate {
-                window.ignoresMouseEvents = !(inNotch || inPanel)
+                window.ignoresMouseEvents = !hovering
             } else {
-                // Auto-opened (notification / permission prompt). Stay click-through
-                // so the pop-up cannot take the mouse from the app in use. The panel
-                // becomes interactive only after the pointer deliberately reaches
-                // the notch, and stays so while the pointer is on the panel.
-                if !autoOpenInteractive && inNotch {
+                // Auto-opened (task finished / confirmation). Stay click-through
+                // so the pop-up cannot take the mouse from the app in use. It
+                // becomes interactive when the pointer reaches the notch or
+                // enters the panel from outside after the pop.
+                if !autoOpenInteractive && (inNotch || (hovering && !wasHovering)) {
                     autoOpenInteractive = true
                 }
-                if autoOpenInteractive && !inNotch && !inPanel {
+                if autoOpenInteractive && !hovering {
                     autoOpenInteractive = false
                 }
                 window.ignoresMouseEvents = !autoOpenInteractive
             }
         }
+
+        wasHovering = hovering
     }
 
     required init?(coder: NSCoder) {

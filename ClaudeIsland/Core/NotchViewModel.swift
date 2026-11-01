@@ -103,7 +103,6 @@ class NotchViewModel: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
     private let events = EventMonitors.shared
-    private var hoverTimer: DispatchWorkItem?
 
     // MARK: - Initialization
 
@@ -173,20 +172,6 @@ class NotchViewModel: ObservableObject {
         guard newHovering != isHovering else { return }
 
         isHovering = newHovering
-
-        // Cancel any pending hover timer
-        hoverTimer?.cancel()
-        hoverTimer = nil
-
-        // Start hover timer to auto-expand after 1 second
-        if isHovering && (status == .closed || status == .popping) {
-            let workItem = DispatchWorkItem { [weak self] in
-                guard let self = self, self.isHovering else { return }
-                self.notchOpen(reason: .hover)
-            }
-            hoverTimer = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: workItem)
-        }
     }
 
     private func handleMouseDown() {
@@ -273,10 +258,6 @@ class NotchViewModel: ObservableObject {
 
     /// Perform boot animation: expand briefly then collapse
     func performBootAnimation() {
-        notchOpen(reason: .boot)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            guard let self = self, self.openReason == .boot else { return }
-            self.notchClose()
-        }
+        // The notch stays compact until the user clicks it or a turn finishes.
     }
 }

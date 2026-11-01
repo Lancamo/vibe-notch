@@ -425,8 +425,22 @@ struct NotchView: View {
     private func handlePendingSessionsChange(_ sessions: [SessionState]) {
         let currentIds = Set(sessions.map { $0.stableId })
         let newPendingIds = currentIds.subtracting(previousPendingIds)
+        let newlyPending = sessions.filter { newPendingIds.contains($0.stableId) }
 
-        if !newPendingIds.isEmpty &&
+        // Only expand for a finished turn or a confirmation the user actually
+        // has to answer. Bypass-permission sessions auto-allow, so they never pop.
+        let needsUser = newlyPending.contains { session in
+            switch session.phase {
+            case .waitingForInput:
+                return true
+            case .waitingForApproval:
+                return session.permissionMode != "bypassPermissions"
+            default:
+                return false
+            }
+        }
+
+        if needsUser &&
            viewModel.status == .closed &&
            !TerminalVisibilityDetector.isTerminalVisibleOnCurrentSpace() {
             viewModel.notchOpen(reason: .notification)

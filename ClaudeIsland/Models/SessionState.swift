@@ -26,6 +26,8 @@ struct SessionState: Equatable, Identifiable, Sendable {
     var isInDesktopApp: Bool = false
     /// The desktop app's own session ID (`local_<uuid>`), when it launched this session.
     var hostSessionId: String?
+    /// Claude Code permission mode reported by the hook (e.g. bypassPermissions).
+    var permissionMode: String?
 
     // MARK: - State Machine
 

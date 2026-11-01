@@ -135,6 +135,9 @@ actor SessionStore {
         if let hostSessionId = event.hostSessionId, !hostSessionId.isEmpty {
             session.hostSessionId = hostSessionId
         }
+        if let permissionMode = event.permissionMode {
+            session.permissionMode = permissionMode
+        }
         if let pid = event.pid {
             let tree = ProcessTreeBuilder.shared.buildTree()
             session.isInTmux = ProcessTreeBuilder.shared.isInTmux(pid: pid, tree: tree)
