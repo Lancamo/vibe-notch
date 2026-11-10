@@ -74,9 +74,11 @@ struct NotchMenuView: View {
                     if hooksInstalled {
                         HookInstaller.uninstall()
                         hooksInstalled = false
+                        AppSettings.hooksConsentGiven = false
                     } else {
                         HookInstaller.installIfNeeded()
                         hooksInstalled = true
+                        AppSettings.hooksConsentGiven = true
                     }
                 }
 

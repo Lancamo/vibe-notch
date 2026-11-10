@@ -29,6 +29,8 @@ struct HookEvent: Codable, Sendable {
     let toolUseId: String?
     let notificationType: String?
     let message: String?
+    /// Shared secret written by the app and read by the hook script.
+    let token: String?
 
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
@@ -38,11 +40,11 @@ struct HookEvent: Codable, Sendable {
         case toolInput = "tool_input"
         case toolUseId = "tool_use_id"
         case notificationType = "notification_type"
-        case message
+        case message, token
     }
 
     /// Create a copy with updated toolUseId
-    init(sessionId: String, hostSessionId: String? = nil, permissionMode: String? = nil, cwd: String, event: String, status: String, pid: Int?, tty: String?, tool: String?, toolInput: [String: AnyCodable]?, toolUseId: String?, notificationType: String?, message: String?) {
+    init(sessionId: String, hostSessionId: String? = nil, permissionMode: String? = nil, cwd: String, event: String, status: String, pid: Int?, tty: String?, tool: String?, toolInput: [String: AnyCodable]?, toolUseId: String?, notificationType: String?, message: String?, token: String? = nil) {
         self.sessionId = sessionId
         self.hostSessionId = hostSessionId
         self.permissionMode = permissionMode
@@ -56,6 +58,7 @@ struct HookEvent: Codable, Sendable {
         self.toolUseId = toolUseId
         self.notificationType = notificationType
         self.message = message
+        self.token = token
     }
 
     var sessionPhase: SessionPhase {
@@ -115,9 +118,16 @@ typealias PermissionFailureHandler = @Sendable (_ sessionId: String, _ toolUseId
 /// Uses GCD DispatchSource for non-blocking I/O
 class HookSocketServer {
     static let shared = HookSocketServer()
-    static let socketPath = "/tmp/claude-island.sock"
+    static let socketPath: String = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".claude/claude-island.sock")
+        .path
+    static let tokenPath: String = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".claude/hooks/.claude-island-token")
+        .path
 
     private var serverSocket: Int32 = -1
+    /// The expected token for authenticating hook connections
+    private var expectedToken: String?
     private var acceptSource: DispatchSourceRead?
     private var eventHandler: HookEventHandler?
     private var permissionFailureHandler: PermissionFailureHandler?
@@ -149,6 +159,8 @@ class HookSocketServer {
         permissionFailureHandler = onPermissionFailure
 
         unlink(Self.socketPath)
+        // Clean up the legacy socket path from previous versions
+        unlink("/tmp/claude-island.sock")
 
         serverSocket = socket(AF_UNIX, SOCK_STREAM, 0)
         guard serverSocket >= 0 else {
@@ -193,6 +205,8 @@ class HookSocketServer {
 
         logger.info("Listening on \(Self.socketPath, privacy: .public)")
 
+        expectedToken = generateAndWriteToken()
+
         acceptSource = DispatchSource.makeReadSource(fileDescriptor: serverSocket, queue: queue)
         acceptSource?.setEventHandler { [weak self] in
             self?.acceptConnection()
@@ -211,6 +225,7 @@ class HookSocketServer {
         acceptSource?.cancel()
         acceptSource = nil
         unlink(Self.socketPath)
+        unlink(Self.tokenPath)
 
         permissionsLock.lock()
         for (_, pending) in pendingPermissions {
@@ -218,6 +233,31 @@ class HookSocketServer {
         }
         pendingPermissions.removeAll()
         permissionsLock.unlock()
+    }
+
+    // MARK: - Token Authentication
+
+    /// Generate a random token and write it to the token file
+    private func generateAndWriteToken() -> String {
+        let token = UUID().uuidString
+        let tokenURL = URL(fileURLWithPath: Self.tokenPath)
+        let tokenDir = tokenURL.deletingLastPathComponent()
+
+        try? FileManager.default.createDirectory(
+            at: tokenDir,
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        // Replace any stale token from a previous launch.
+        try? FileManager.default.removeItem(at: tokenURL)
+        try? token.data(using: .utf8)?.write(to: tokenURL, options: [.atomic])
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: Self.tokenPath
+        )
+
+        logger.info("Auth token written to \(Self.tokenPath, privacy: .public)")
+        return token
     }
 
     /// Respond to a pending permission request by toolUseId
@@ -419,6 +459,15 @@ class HookSocketServer {
             return
         }
 
+        // Validate authentication token
+        if let expected = expectedToken {
+            guard event.token == expected else {
+                logger.warning("Rejected event with invalid token from \(event.sessionId.prefix(8), privacy: .public)")
+                close(clientSocket)
+                return
+            }
+        }
+
         logger.debug("Received: \(event.event, privacy: .public) for \(event.sessionId.prefix(8), privacy: .public)")
 
         if event.event == "PreToolUse" {
@@ -464,7 +513,8 @@ class HookSocketServer {
                 toolInput: event.toolInput,
                 toolUseId: toolUseId,  // Use resolved toolUseId
                 notificationType: event.notificationType,
-                message: event.message
+                message: event.message,
+                token: event.token
             )
 
             let pending = PendingPermission(

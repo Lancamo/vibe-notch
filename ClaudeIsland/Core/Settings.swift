@@ -39,6 +39,7 @@ enum AppSettings {
     private enum Keys {
         static let notificationSound = "notificationSound"
         static let claudeDirectoryName = "claudeDirectoryName"
+        static let hooksConsentGiven = "hooksConsentGiven"
     }
 
     // MARK: - Notification Sound
@@ -69,6 +70,26 @@ enum AppSettings {
         }
         set {
             defaults.set(newValue.trimmingCharacters(in: .whitespaces), forKey: Keys.claudeDirectoryName)
+        }
+    }
+
+    // MARK: - Hooks Consent
+
+    /// Whether the user has given consent for hooks installation.
+    /// Returns nil if never asked (first launch).
+    static var hooksConsentGiven: Bool? {
+        get {
+            guard defaults.object(forKey: Keys.hooksConsentGiven) != nil else {
+                return nil
+            }
+            return defaults.bool(forKey: Keys.hooksConsentGiven)
+        }
+        set {
+            if let value = newValue {
+                defaults.set(value, forKey: Keys.hooksConsentGiven)
+            } else {
+                defaults.removeObject(forKey: Keys.hooksConsentGiven)
+            }
         }
     }
 }
